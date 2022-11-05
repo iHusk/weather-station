@@ -163,7 +163,8 @@ def write_data(sensor_bmp, sensor_sht, calibration):
 
         i = 0 
 
-        while i < 900:
+        # new file every 5 minutes.
+        while i < 300:
             writer.writerow([time.time(),RAIN,WIND,analog_read(),sensor_bmp.temperature,sensor_sht.temperature,sensor_bmp.pressure,sensor_sht.relative_humidity,sensor_bmp.altitude,calibration])
             i += 1
             time.sleep(0.82)
@@ -172,7 +173,7 @@ def write_data(sensor_bmp, sensor_sht, calibration):
 
 
 @flow(task_runner=SequentialTaskRunner())
-def main_flow():
+def weather_logging_flow():
     """
     Main task runner
     """
@@ -192,4 +193,4 @@ def main_flow():
 
 
 if __name__ == "__main__":
-    main_flow()
+    weather_logging_flow()
