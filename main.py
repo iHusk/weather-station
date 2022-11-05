@@ -17,6 +17,11 @@ PIN_ANENOMETER = 4
 PIN_WIND_VANE_A = 27
 PIN_WIND_VANE_B = 22
 
+
+# global variables
+RAIN = 0
+WIND = 0
+
 # file to log data in
 LOGFILE = "/home/admin/weather-station/data/cache/weather.csv"
 
@@ -35,40 +40,59 @@ GPIO.setup(PIN_RAIN_GUAGE, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 GPIO.setup(PIN_ANENOMETER, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
 def discharge():
+    """
+    This function discharges the on-board capacitor
+    """
     GPIO.setup(PIN_WIND_VANE_A, GPIO.IN)
     GPIO.setup(PIN_WIND_VANE_B, GPIO.OUT)
     GPIO.output(PIN_WIND_VANE_B, False)
     time.sleep(0.005)
 
-def chaarge_time():
-    GPIO.setup(PIN_WIND_VANE_A, GPIO.OUT)
-    GPIO.setup(PIN_WIND_VANE_B, GPIO.IN)
+def charge_time():
+    """
+    This function returns a value representing how long it takes for the on-board capacitor to charge.
+
+    temp: int
+    """
     temp = 0
 
+    GPIO.setup(PIN_WIND_VANE_A, GPIO.OUT)
+    GPIO.setup(PIN_WIND_VANE_B, GPIO.IN)
+
     GPIO.output(PIN_WIND_VANE_A, True)
+
+    ## until we get an input on pin B, iterate temp. 
     while not GPIO.input(PIN_WIND_VANE_B):
         temp += 1
 
     return temp
 
 def analog_read():
+    """
+    This function discharges the capacitor and then returns a value representing the time it takes
+    the on-board capacitor to charge
+    """
     discharge()
-    return chaarge_time()
-
-# keep track
-rain = 0
-wind = 0
+    return charge_time()
 
 # callback functions
 def rain_cb(channel):
-	global rain
-	rain += 1
+    """
+    This callback function iterates the rain variable
+    """
+    global RAIN
+    RAIN += 1
 
 def wind_cb(channel):
-    global wind
-    wind += 1
+    """
+    This callback function iterates the wind variable
+    """
+    global WIND
+    WIND += 1
 
-# register the call back for pin interrupts, note GPIO.FALLING looks for falling cliff. might need to adjust bounce time.
+# register the call back for pin interrupts, note GPIO.FALLING looks for falling cliff. 
+# bounce time limits how often it can be called, which might need to be adjusted 
+# 11/4/22 300, 10
 GPIO.add_event_detect(PIN_RAIN_GUAGE, GPIO.FALLING, callback=rain_cb, bouncetime=300)
 GPIO.add_event_detect(PIN_ANENOMETER, GPIO.FALLING, callback=wind_cb, bouncetime=10)
 
