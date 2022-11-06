@@ -28,14 +28,26 @@ def process_data(df):
     """
     temp = pd.DataFrame()
     temp['DATETIME'] = pd.to_datetime(df['DATETIME'],unit='s')
+    # floor to minute frequency
+    temp['DATETIME_t'] = temp['DATETIME'].dt.floor('T')
     # we want the change from last reading 
-    temp['RAIN'] = (df['RAIN']-(df['RAIN'].shift(1) or 0))*RAIN_ITERATOR
-    temp['WIND_SPEED'] = (df['WIND_SPEED']-(df['WIND_SPEED'].shift(1) or 0))*ANEMOMETER_ITERATOR
+    temp['RAIN'] = (df['RAIN']-(df['RAIN'].shift(1)))*RAIN_ITERATOR
+    temp['WIND_SPEED'] = (df['WIND_SPEED']-(df['WIND_SPEED'].shift(1)))*ANEMOMETER_ITERATOR
     temp['TEMPERATURE'] = c_to_f((df['TEMP_BMP']+df['TEMP_SHT'])/2)
     temp['PRESSURE'] = round(df['PRESSURE'], 2)
     temp['HUMIDITY'] = round(df['HUMIDITY'], 2)
 
     return temp
+
+
+@task
+def process_data_live(data):
+    """
+    Group by the datetime trunc. Were taking the median, but will need to process wind direction differently. 
+    I want a wind gust measurement that is max wind speed
+    """
+    data = data.groupby(['DATETIME_t']).median().reset_index()
+    return data
 
 
 @flow(task_runner=SequentialTaskRunner())
@@ -55,7 +67,9 @@ def process_flow():
 
         data = process_data(data)
 
-        data.to_csv(CURRENT_DATA, mode='a+', index=False, header=False)
+        live_data = process_data_live(data)
+
+        live_data.to_csv(CURRENT_DATA, mode='a+', index=False, header=False)
         data.to_csv(f'{ARCHIVE_PATH}/{file[:7]}.csv', mode='a+', index=False, header=False)
         
         os.rename(file_path, f'{ARCHIVE_PATH}/records/{file}')
