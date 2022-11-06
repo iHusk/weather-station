@@ -18,9 +18,6 @@ from prefect.task_runners import SequentialTaskRunner
 # | CONSTANTS |
 # ╰───────────╯
 
-
-RAIN_ITERATOR = 0.2794 # mm
-ANEMOMETER_ITERATOR = 2.4 # km/h
 ELEVATION = 370 # m
 
 # which GPIO pin the gauge is connected to
@@ -34,7 +31,7 @@ RAIN = 0
 WIND = 0
 
 # file to log data in
-DATA_PATH = "/home/admin/main/data/cache"
+DATA_PATH = "/home/admin/main/data/weather-station/cache"
 
 
 # ╭─────────────────╮
@@ -131,7 +128,30 @@ def setup_board():
 
 
 @task
-def calibrate_bmp(sensor):
+def calibrate_temperature(bmp, sht):
+    """
+    This function just averages temps from the sensors and checks to make sure sensors are working.
+    Used to calibrate pressure and as the GRAT temp. 
+    """
+    logger = get_run_logger
+
+    bmp_t = bmp.temperature
+    sht_t = sht.temperature
+
+    # if our sensors differ by more than 1 Celcius, there is probably an issue
+    if abs(bmp_t - sht_t) > 1:
+        logger.warning("Questionable differences in temperatures, check sensors...")
+    
+    temp = (bmp_t + sht_t) / 2
+
+    return temp
+
+    
+
+
+
+@task
+def calibrate_bmp(sensor, temperature):
     """
     This function calibrates the bmp sensor for pressure at sea level dependent on elevation and temperature
 
@@ -139,9 +159,7 @@ def calibrate_bmp(sensor):
 
     calibration: float
     """
-    temp = sensor.temperature
-
-    calibration = pow((1-((0.0065*ELEVATION)/(temp+(0.0065*ELEVATION)+273.15))),-5.257)*sensor.pressure
+    calibration = pow((1-((0.0065*ELEVATION)/(temperature+(0.0065*ELEVATION)+273.15))),-5.257)*sensor.pressure
 
     sensor.sea_level_pressure = calibration
 
@@ -183,7 +201,8 @@ def weather_logging_flow():
     bmp, sht = setup_board()
 
     logger.info("Calibrating sensors...")
-    calibrated = calibrate_bmp(bmp)
+    temp = calibrate_temperature(bmp, sht)
+    calibrated = calibrate_bmp(bmp, temp)
 
     logger.info("Writing data...")
     write_data(bmp, sht, calibrated)
