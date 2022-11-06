@@ -60,21 +60,24 @@ def process_flow():
     files = len(os.listdir(CACHE_PATH))
     i = 1
 
-    for file in os.listdir(CACHE_PATH):
-        logger.info(f'Processing {i} of {files} files...')
-        file_path = f'{CACHE_PATH}/{file}'
-        data = pd.read_csv(file_path)
+    if len(os.listdir(CACHE_PATH)) == 0:
+        logger.info(f'Nothing to process...')
+    else:
+        for file in os.listdir(CACHE_PATH):
+            logger.info(f'Processing {i} of {files} files...')
+            file_path = f'{CACHE_PATH}/{file}'
+            data = pd.read_csv(file_path)
 
-        data = process_data(data)
+            data = process_data(data)
 
-        live_data = process_data_live(data)
+            live_data = process_data_live(data)
 
-        live_data.to_csv(CURRENT_DATA, mode='a+', index=False, header=False)
-        data.to_csv(f'{ARCHIVE_PATH}/{file[:7]}.csv', mode='a+', index=False, header=False)
-        
-        os.rename(file_path, f'{ARCHIVE_PATH}/records/{file}')
+            live_data.to_csv(CURRENT_DATA, mode='a+', index=False, header=False)
+            data.to_csv(f'{ARCHIVE_PATH}/{file[:7]}.csv', mode='a+', index=False, header=False)
+            
+            os.rename(file_path, f'{ARCHIVE_PATH}/records/{file}')
 
-        i += 1
+            i += 1
 
 
 if __name__ == "__main__":
