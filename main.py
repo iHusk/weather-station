@@ -31,7 +31,7 @@ RAIN = 0
 WIND = 0
 
 # file to log data in
-DATA_PATH = "/home/admin/main/data/weather-station/cache"
+DATA_PATH = "/home/admin/weather-station/data/cache"
 
 
 # ╭─────────────────╮

@@ -11,9 +11,9 @@ RAIN_ITERATOR = 0.2794 # mm
 ANEMOMETER_ITERATOR = 2.4 # km/h
 
 # file to log data in
-CACHE_PATH = "/home/admin/main/data/weather-station/cache"
-ARCHIVE_PATH = "/home/admin/main/data/weather-station/archive"
-CURRENT_DATA = "/home/admin/main/data/weather-station/current.csv"
+CACHE_PATH = "/home/admin/weather-station/data/cache"
+ARCHIVE_PATH = "/home/admin/weather-station/data/archive"
+CURRENT_DATA = "//home/admin/weather-station/data/current.csv"
 
 def c_to_f(c):
     """
