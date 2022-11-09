@@ -197,7 +197,8 @@ def write_data(sensor_bmp, sensor_sht, calibration):
         i = 0 
 
         # new file every 5 minutes.
-        while i < 300:
+        # 11/9/2022 - Changed this to 275 because the flow was running into io errors. We miss 25 seconds every 5 minutes. I'm sure we can tighten this up but idk how to fix it rn. 
+        while i < 275:
             try:
                 writer.writerow([time.time(),RAIN,WIND,analog_read(),sensor_bmp.temperature,sensor_sht.temperature,sensor_bmp.pressure,sensor_sht.relative_humidity,sensor_bmp.altitude,calibration])
             except Exception as e:
