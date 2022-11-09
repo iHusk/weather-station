@@ -6,6 +6,9 @@ import adafruit_bmp280
 import adafruit_sht31d
 import time
 import csv
+import os
+
+import pandas as pd
 
 from datetime import datetime
 from prefect import task, flow, get_run_logger
@@ -17,6 +20,9 @@ from prefect.task_runners import SequentialTaskRunner
 # ╭───────────╮
 # | CONSTANTS |
 # ╰───────────╯
+
+RAIN_ITERATOR = 0.2794 # mm
+ANEMOMETER_ITERATOR = 2.4 # km/h
 
 ELEVATION = 370 # m
 
@@ -32,6 +38,8 @@ WIND = 0
 
 # file to log data in
 DATA_PATH = "/home/admin/weather-station/data/cache"
+ARCHIVE_PATH = "/home/admin/weather-station/data/archive"
+CURRENT_PATH = "/home/admin/weather-station/data"
 
 
 # ╭─────────────────╮
@@ -91,6 +99,12 @@ def wind_cb(channel):
     """
     global WIND
     WIND += 1
+
+def c_to_f(c):
+    """
+    Given degrees Celcius, returns Fahrenheit
+    """
+    return round(((c*9)/5)+32, 0)
 
 
 # ╭───────────────╮
@@ -171,7 +185,8 @@ def write_data(sensor_bmp, sensor_sht, calibration):
     """
     This function writes the raw data to the cache
     """
-    log_file_path = f'{DATA_PATH}/{datetime.now()}.csv'
+    # log_file_path = f'{DATA_PATH}/{datetime.now()}.csv'
+    log_file_path = f'{CURRENT_PATH}/{datetime.now()}.csv'
 
     with open(log_file_path, 'a+', newline='') as file:
         writer = csv.writer(file)
@@ -183,12 +198,81 @@ def write_data(sensor_bmp, sensor_sht, calibration):
 
         # new file every 5 minutes.
         while i < 300:
-            writer.writerow([time.time(),RAIN,WIND,analog_read(),sensor_bmp.temperature,sensor_sht.temperature,sensor_bmp.pressure,sensor_sht.relative_humidity,sensor_bmp.altitude,calibration])
+            try:
+                writer.writerow([time.time(),RAIN,WIND,analog_read(),sensor_bmp.temperature,sensor_sht.temperature,sensor_bmp.pressure,sensor_sht.relative_humidity,sensor_bmp.altitude,calibration])
+            except Exception as e:
+                print(e)
             i += 1
-            time.sleep(0.82)
+            time.sleep(0.81)
 
         file.close()
 
+
+    os.rename(log_file_path, f'{DATA_PATH}/{log_file_path[-30:]}')
+
+    return True
+
+
+@task
+def process_data(df):
+    """
+    This function processes the raw data received from the sensors
+    """
+
+    temp = pd.DataFrame()
+    temp['DATETIME'] = pd.to_datetime(df['DATETIME'],unit='s')
+    # floor to minute frequency
+    temp['DATETIME_t'] = temp['DATETIME'].dt.floor('T')
+    # we want the change from last reading 
+    # TODO: FIX THE NAN FOR RAIN AND WIND SPEED ON ROW 0 (or ?)
+    temp['RAIN'] = (df['RAIN']-df['RAIN'].shift(1))*RAIN_ITERATOR
+    temp['WIND_SPEED'] = (df['WIND_SPEED']-df['WIND_SPEED'].shift(1))*ANEMOMETER_ITERATOR
+    temp['TEMPERATURE'] = round(c_to_f((df['TEMP_BMP']+df['TEMP_SHT'])/2), 4)
+    temp['PRESSURE'] = round(df['PRESSURE'], 2)
+    temp['HUMIDITY'] = round(df['HUMIDITY'], 2)
+
+    return temp
+
+
+@flow(task_runner=SequentialTaskRunner())
+def record_data_flow():
+    """
+    Secondary task runner for processing data just recorded
+    """
+    logger = get_run_logger()
+
+    i = 1
+
+    for file in os.listdir(DATA_PATH):
+        logger.info(f'Processing file {i} of {len(os.listdir(DATA_PATH))}...')
+        file_path = f'{DATA_PATH}/{file}'
+
+        try:
+            data = pd.read_csv(file_path)
+            logger.info("Processing...")
+            try:
+                data = process_data(data)
+            except Exception as e:
+                logger.warning("Error in process function...")
+                logger.warning(e)
+
+            try:
+                data.to_csv(f'{ARCHIVE_PATH}/{file[:7]}.csv', mode='a+', index=False, header=False)
+            except Exception as e:
+                logger.warning("Error writing to file...")
+                logger.warning(e)
+
+            try:
+                os.rename(file_path, f'{ARCHIVE_PATH}/records/{file}')
+            except Exception as e:
+                logger.warning("Error renaming files...")
+                logger.warning(e)
+
+        except Exception as e:
+            logger.warning(f'Not able to process {file}')
+            logger.warning(f'{e}')
+
+        i += 1
 
 @flow(task_runner=SequentialTaskRunner())
 def weather_logging_flow():
@@ -198,17 +282,43 @@ def weather_logging_flow():
     logger = get_run_logger()
 
     logger.info("Setting up board...")
-    bmp, sht = setup_board()
+    try:
+        bmp, sht = setup_board()
+        logger.info("Board setup!")
+    except Exception as e:
+        logger.error("Error setting up board...")
+        logger.warning(e)
 
     logger.info("Calibrating sensors...")
-    temp = calibrate_temperature(bmp, sht)
-    calibrated = calibrate_bmp(bmp, temp)
+    try:
+        temp = calibrate_temperature(bmp, sht)
+    except Exception as e:
+        logger.error("Error calibrating temperature...")
+        logger.warning(e)
+
+    try:
+        calibrated = calibrate_bmp(bmp, temp)
+    except Exception as e:
+        logger.error("Error calibrating bmp...")
+        logger.warning(e)
 
     logger.info("Writing data...")
-    write_data(bmp, sht, calibrated)
+    try:
+        written_date = write_data(bmp, sht, calibrated)
+    except Exception as e:
+        logger.error("Error writing data...")
+        logger.warning(e)
+
+    record_data_flow()
 
     logger.info("Cleaning up...")
-    GPIO.cleanup()
+    try:
+        GPIO.cleanup()
+    except Exception as e:
+        logger.error("Error cleaning up...")
+        logger.warning(e)
+
+    record_data_flow()
 
 
 if __name__ == "__main__":
