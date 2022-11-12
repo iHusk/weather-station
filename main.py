@@ -207,11 +207,28 @@ def calibrate_bmp(sensor, temperature):
 @task
 def produce_data(sensor_bmp, sensor_sht, tmp, calibration, producer):
     i = 0
-    while i < 100:
-        data = f'{time.time()},{RAIN},{WIND},{analog_read()},{sensor_bmp.temperature},{sensor_sht.temperature},{read_temp(tmp, 4)},{sensor_bmp.pressure},{sensor_sht.relative_humidity},{sensor_bmp.altitude},{calibration}'
-        encoded_message = data.encode("utf-8")
-        producer.send("20221111-test", encoded_message)
-        i += 1
+    log_file_path = f'{CURRENT_PATH}/{datetime.now()}.csv'
+
+    with open(log_file_path, 'a+', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(['DATETIME','RAIN','WIND_SPEED','WIND_DIRECTION','TEMP_BMP','TEMP_SHT','TEMP_TMP','PRESSURE','HUMIDITY','CAL_ALTITUDE','CAL_SPL'])
+
+        while i < 3600:
+            try:
+                data = f'{time.time()},{RAIN},{WIND},{analog_read()},{sensor_bmp.temperature},{sensor_sht.temperature},{read_temp(tmp, 4)},{sensor_bmp.pressure},{sensor_sht.relative_humidity},{sensor_bmp.altitude},{calibration}'
+                writer.writerow(data)
+                encoded_message = data.encode("utf-8")
+                producer.send("20221111-test", encoded_message)
+            except Exception as e:
+                print(e)
+            i += 1
+            time.sleep(0.81)
+
+        file.close()
+    
+    os.rename(log_file_path, f'{DATA_PATH}/{log_file_path[-30:]}')
+
+    return True
 
 @task
 def write_data(sensor_bmp, sensor_sht, calibration):
