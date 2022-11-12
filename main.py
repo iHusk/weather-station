@@ -7,12 +7,15 @@ import adafruit_sht31d
 import time
 import csv
 import os
+import glob
 
 import pandas as pd
 
 from datetime import datetime
 from prefect import task, flow, get_run_logger
 from prefect.task_runners import SequentialTaskRunner
+
+from kafka import KafkaProducer
 
 # https://aminoapps.com/c/studying-amino/page/item/even-more-headers-dividers/XpRD_MoHXIgjKgkNWxba4NGEYKgzaDnPJX
 
@@ -85,6 +88,23 @@ def analog_read():
     return charge_time()
 
 
+def read_temp(device, decimals = 4):
+    """
+    Reads the temperature from a 1-wire device
+    https://raspberrypi-guide.github.io/electronics/temperature-monitoring
+    """
+
+    with open(device, "r") as f:
+        lines = f.readlines()
+    while lines[0].strip()[-3:] != "YES":
+        lines = read_temp_raw()
+    equals_pos = lines[1].find("t=")
+    if equals_pos != -1:
+        temp_string = lines[1][equals_pos+2:]
+        temp = round(float(temp_string) / 1000.0, decimals)
+        return temp
+
+
 # callback functions
 def rain_cb(channel):
     """
@@ -105,6 +125,8 @@ def c_to_f(c):
     Given degrees Celcius, returns Fahrenheit
     """
     return round(((c*9)/5)+32, 0)
+
+
 
 
 # ╭───────────────╮
@@ -138,31 +160,33 @@ def setup_board():
     GPIO.add_event_detect(PIN_RAIN_GUAGE, GPIO.FALLING, callback=rain_cb, bouncetime=300)
     GPIO.add_event_detect(PIN_ANENOMETER, GPIO.FALLING, callback=wind_cb, bouncetime=10)
 
-    return bmp, sht
+    # 1-wire Temperature Sensor - DS18B20
+    tmp = glob.glob("/sys/bus/w1/devices/" + "28*")[0] + "/w1_slave"
+
+    return bmp, sht, tmp
 
 
 @task
-def calibrate_temperature(bmp, sht):
+def calibrate_temperature(bmp, sht, tmp):
     """
     This function just averages temps from the sensors and checks to make sure sensors are working.
     Used to calibrate pressure and as the GRAT temp. 
     """
-    logger = get_run_logger
+    logger = get_run_logger()
 
     bmp_t = bmp.temperature
     sht_t = sht.temperature
+    tmp_t = read_temp(tmp, 2)
+    logger.info(f'Real temp {tmp_t}')
 
     # if our sensors differ by more than 1 Celcius, there is probably an issue
     if abs(bmp_t - sht_t) > 1:
         logger.warning("Questionable differences in temperatures, check sensors...")
+        logger.info(f'BMP: {bmp_t} | SHT: {sht_t}')
     
     temp = (bmp_t + sht_t) / 2
 
     return temp
-
-    
-
-
 
 @task
 def calibrate_bmp(sensor, temperature):
@@ -181,6 +205,15 @@ def calibrate_bmp(sensor, temperature):
 
 
 @task
+def produce_data(sensor_bmp, sensor_sht, tmp, calibration, producer):
+    i = 0
+    while i < 100:
+        data = f'{time.time()},{RAIN},{WIND},{analog_read()},{sensor_bmp.temperature},{sensor_sht.temperature},{read_temp(tmp, 4)},{sensor_bmp.pressure},{sensor_sht.relative_humidity},{sensor_bmp.altitude},{calibration}'
+        encoded_message = data.encode("utf-8")
+        producer.send("20221111-test", encoded_message)
+        i += 1
+
+@task
 def write_data(sensor_bmp, sensor_sht, calibration):
     """
     This function writes the raw data to the cache
@@ -192,7 +225,7 @@ def write_data(sensor_bmp, sensor_sht, calibration):
         writer = csv.writer(file)
 
         # Write schema
-        writer.writerow(['DATETIME','RAIN','WIND_SPEED','WIND_DIRECTION','TEMP_BMP','TEMP_SHT','PRESSURE','HUMIDITY','CAL_ALTITUDE','CAL_SPL'])
+        writer.writerow(['DATETIME','RAIN','WIND_SPEED','WIND_DIRECTION','TEMP_BMP','TEMP_SHT','TEMP_TMP','PRESSURE','HUMIDITY','CAL_ALTITUDE','CAL_SPL'])
 
         i = 0 
 
@@ -275,6 +308,12 @@ def record_data_flow():
 
         i += 1
 
+@task
+def setup_producer():
+    producer = KafkaProducer(bootstrap_servers=['192.168.0.24:9092'])
+
+    return producer
+
 @flow(task_runner=SequentialTaskRunner())
 def weather_logging_flow():
     """
@@ -284,15 +323,22 @@ def weather_logging_flow():
 
     logger.info("Setting up board...")
     try:
-        bmp, sht = setup_board()
+        bmp, sht, tmp = setup_board()
         logger.info("Board setup!")
     except Exception as e:
         logger.error("Error setting up board...")
         logger.warning(e)
 
+    logger.info("Setting up Kafka")
+    try:
+        producer = setup_producer()
+    except Exception as e:
+        logger.error("Error settting up Kafka...")
+        logger.warning(e)
+
     logger.info("Calibrating sensors...")
     try:
-        temp = calibrate_temperature(bmp, sht)
+        temp = calibrate_temperature(bmp, sht, tmp)
     except Exception as e:
         logger.error("Error calibrating temperature...")
         logger.warning(e)
@@ -305,7 +351,8 @@ def weather_logging_flow():
 
     logger.info("Writing data...")
     try:
-        written_date = write_data(bmp, sht, calibrated)
+        temp = produce_data(bmp, sht, tmp, calibrated, producer)
+        # written_date = write_data(bmp, sht, calibrated)
     except Exception as e:
         logger.error("Error writing data...")
         logger.warning(e)
@@ -315,11 +362,13 @@ def weather_logging_flow():
     logger.info("Cleaning up...")
     try:
         GPIO.cleanup()
+        producer.flush()
+        producer.close()
     except Exception as e:
         logger.error("Error cleaning up...")
         logger.warning(e)
 
-    record_data_flow()
+    # record_data_flow()
 
 
 if __name__ == "__main__":
