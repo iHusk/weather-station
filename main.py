@@ -8,6 +8,7 @@ import time
 import csv
 import os
 import glob
+import json
 
 import pandas as pd
 
@@ -206,62 +207,85 @@ def calibrate_bmp(sensor, temperature):
 
 @task
 def produce_data(sensor_bmp, sensor_sht, tmp, calibration, producer):
-    i = 0
-    log_file_path = f'{CURRENT_PATH}/{datetime.now()}.csv'
+
+
+    ## Must change rename below if you touch this
+    log_file_path = f'{CURRENT_PATH}/{datetime.now().strftime("%Y%m%d-%H%M%S")}.csv'
 
     with open(log_file_path, 'a+', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(['DATETIME','RAIN','WIND_SPEED','WIND_DIRECTION','TEMP_BMP','TEMP_SHT','TEMP_TMP','PRESSURE','HUMIDITY','CAL_ALTITUDE','CAL_SPL'])
+        writer.writerow(['DATETIME','RAIN','WIND_SPEED','WIND_DIRECTION','TEMP_TMP','TEMP_BMP','TEMP_SHT','PRESSURE','HUMIDITY','CAL_ALTITUDE','CAL_SPL'])
 
-        while i < 3600:
+        while True:
+            ## UTC Time
+            if time.strftime("%H") == '05':
+                if int(time.strftime("%M")) >= 59:
+                    break
             try:
-                data = f'{time.time()},{RAIN},{WIND},{analog_read()},{sensor_bmp.temperature},{sensor_sht.temperature},{read_temp(tmp, 4)},{sensor_bmp.pressure},{sensor_sht.relative_humidity},{sensor_bmp.altitude},{calibration}'
-                writer.writerow(data)
-                encoded_message = data.encode("utf-8")
+                data_json = {
+                    "datetime":time.time(),
+                    "rain":RAIN, 
+                    "wind":WIND, 
+                    "wind_direction":analog_read(), 
+                    "tmp_temp":read_temp(tmp, 4), 
+                    "bmp_temp":sensor_bmp.temperature, 
+                    "sht_temp":sensor_sht.temperature, 
+                    "pressure":sensor_bmp.pressure, 
+                    "humidity":sensor_sht.relative_humidity, 
+                    "cal_alt":sensor_bmp.altitude, 
+                    "cal_slp":calibration
+                    }
+                data_json = json.dumps(data_json)
+                data_list = json.loads(data_json)
+                print(data_list)     
+                # data_list = f"{data_list['data']['datetime']}, {data_list['data']['rain']}, {data_list['data']['wind']}, {data_list['data']['wind_direction']}, {data_list['data']['tmp_temp']}, {data_list['data']['bmp_temp']}, {data_list['data']['sht_temp']}, {data_list['data']['pressure']}, {data_list['data']['humidity']}, {data_list['data']['cal_alt']}, {data_list['data']['cal_slp']}"       
+                # data = f'[{time.time()},{RAIN},{WIND},{analog_read()},{sensor_bmp.temperature},{sensor_sht.temperature},{read_temp(tmp, 4)},{sensor_bmp.pressure},{sensor_sht.relative_humidity},{sensor_bmp.altitude},{calibration}]'
+                writer.writerow([data_list["datetime"], data_list["rain"], data_list["wind"], data_list["wind_direction"], data_list["tmp_temp"], data_list["bmp_temp"], data_list["sht_temp"], data_list["pressure"], data_list["humidity"], data_list["cal_alt"], data_list["cal_slp"]])
+                encoded_message = data_json.encode("utf-8")
                 producer.send("20221111-test", encoded_message)
             except Exception as e:
-                print(e)
-            i += 1
-            time.sleep(0.81)
+                print(f'EXCEPTION: {e}')
+
 
         file.close()
     
-    os.rename(log_file_path, f'{DATA_PATH}/{log_file_path[-30:]}')
+    ## Must change this if you change filename above
+    os.rename(log_file_path, f'{DATA_PATH}/{log_file_path[-19:]}')
 
     return True
 
-@task
-def write_data(sensor_bmp, sensor_sht, calibration):
-    """
-    This function writes the raw data to the cache
-    """
-    # log_file_path = f'{DATA_PATH}/{datetime.now()}.csv'
-    log_file_path = f'{CURRENT_PATH}/{datetime.now()}.csv'
+# @task
+# def write_data(sensor_bmp, sensor_sht, calibration):
+#     """
+#     This function writes the raw data to the cache
+#     """
+#     # log_file_path = f'{DATA_PATH}/{datetime.now()}.csv'
+#     log_file_path = f'{CURRENT_PATH}/{datetime.now()}.csv'
 
-    with open(log_file_path, 'a+', newline='') as file:
-        writer = csv.writer(file)
+#     with open(log_file_path, 'a+', newline='') as file:
+#         writer = csv.writer(file)
 
-        # Write schema
-        writer.writerow(['DATETIME','RAIN','WIND_SPEED','WIND_DIRECTION','TEMP_BMP','TEMP_SHT','TEMP_TMP','PRESSURE','HUMIDITY','CAL_ALTITUDE','CAL_SPL'])
+#         # Write schema
+#         writer.writerow(['DATETIME','RAIN','WIND_SPEED','WIND_DIRECTION','TEMP_BMP','TEMP_SHT','TEMP_TMP','PRESSURE','HUMIDITY','CAL_ALTITUDE','CAL_SPL'])
 
-        i = 0 
+#         i = 0 
 
-        # new file every 5 minutes.
-        # 11/9/2022 - Changed this to 275 because the flow was running into io errors. We miss 25 seconds every 5 minutes. I'm sure we can tighten this up but idk how to fix it rn. 
-        while i < 275:
-            try:
-                writer.writerow([time.time(),RAIN,WIND,analog_read(),sensor_bmp.temperature,sensor_sht.temperature,sensor_bmp.pressure,sensor_sht.relative_humidity,sensor_bmp.altitude,calibration])
-            except Exception as e:
-                print(e)
-            i += 1
-            time.sleep(0.81)
+#         # new file every 5 minutes.
+#         # 11/9/2022 - Changed this to 275 because the flow was running into io errors. We miss 25 seconds every 5 minutes. I'm sure we can tighten this up but idk how to fix it rn. 
+#         while i < 275:
+#             try:
+#                 writer.writerow([time.time(),RAIN,WIND,analog_read(),sensor_bmp.temperature,sensor_sht.temperature,sensor_bmp.pressure,sensor_sht.relative_humidity,sensor_bmp.altitude,calibration])
+#             except Exception as e:
+#                 print(e)
+#             i += 1
+#             time.sleep(0.81)
 
-        file.close()
+#         file.close()
 
 
-    os.rename(log_file_path, f'{DATA_PATH}/{log_file_path[-30:]}')
+#     os.rename(log_file_path, f'{DATA_PATH}/{log_file_path[-30:]}')
 
-    return True
+#     return True
 
 
 @task
@@ -278,7 +302,7 @@ def process_data(df):
     # TODO: FIX THE NAN FOR RAIN AND WIND SPEED ON ROW 0 (or ?)
     temp['RAIN'] = (df['RAIN']-df['RAIN'].shift(1))*RAIN_ITERATOR
     temp['WIND_SPEED'] = (df['WIND_SPEED']-df['WIND_SPEED'].shift(1))*ANEMOMETER_ITERATOR
-    temp['TEMPERATURE'] = round(c_to_f((df['TEMP_BMP']+df['TEMP_SHT'])/2), 4)
+    temp['TEMPERATURE'] = round(c_to_f(df['TEMP_TMP']), 2)
     temp['PRESSURE'] = round(df['PRESSURE'], 2)
     temp['HUMIDITY'] = round(df['HUMIDITY'], 2)
 
