@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import RPi.GPIO as GPIO
 import board
 import busio
@@ -220,6 +222,7 @@ def produce_data(sensor_bmp, sensor_sht, tmp, calibration, producer):
             ## UTC Time
             if time.strftime("%H") == '05':
                 if int(time.strftime("%M")) >= 59:
+                    print("Time to break")
                     break
             try:
                 data_json = {
@@ -236,8 +239,7 @@ def produce_data(sensor_bmp, sensor_sht, tmp, calibration, producer):
                     "cal_slp":calibration
                     }
                 data_json = json.dumps(data_json)
-                data_list = json.loads(data_json)
-                print(data_list)     
+                data_list = json.loads(data_json)   
                 # data_list = f"{data_list['data']['datetime']}, {data_list['data']['rain']}, {data_list['data']['wind']}, {data_list['data']['wind_direction']}, {data_list['data']['tmp_temp']}, {data_list['data']['bmp_temp']}, {data_list['data']['sht_temp']}, {data_list['data']['pressure']}, {data_list['data']['humidity']}, {data_list['data']['cal_alt']}, {data_list['data']['cal_slp']}"       
                 # data = f'[{time.time()},{RAIN},{WIND},{analog_read()},{sensor_bmp.temperature},{sensor_sht.temperature},{read_temp(tmp, 4)},{sensor_bmp.pressure},{sensor_sht.relative_humidity},{sensor_bmp.altitude},{calibration}]'
                 writer.writerow([data_list["datetime"], data_list["rain"], data_list["wind"], data_list["wind_direction"], data_list["tmp_temp"], data_list["bmp_temp"], data_list["sht_temp"], data_list["pressure"], data_list["humidity"], data_list["cal_alt"], data_list["cal_slp"]])
@@ -253,40 +255,6 @@ def produce_data(sensor_bmp, sensor_sht, tmp, calibration, producer):
     os.rename(log_file_path, f'{DATA_PATH}/{log_file_path[-19:]}')
 
     return True
-
-# @task
-# def write_data(sensor_bmp, sensor_sht, calibration):
-#     """
-#     This function writes the raw data to the cache
-#     """
-#     # log_file_path = f'{DATA_PATH}/{datetime.now()}.csv'
-#     log_file_path = f'{CURRENT_PATH}/{datetime.now()}.csv'
-
-#     with open(log_file_path, 'a+', newline='') as file:
-#         writer = csv.writer(file)
-
-#         # Write schema
-#         writer.writerow(['DATETIME','RAIN','WIND_SPEED','WIND_DIRECTION','TEMP_BMP','TEMP_SHT','TEMP_TMP','PRESSURE','HUMIDITY','CAL_ALTITUDE','CAL_SPL'])
-
-#         i = 0 
-
-#         # new file every 5 minutes.
-#         # 11/9/2022 - Changed this to 275 because the flow was running into io errors. We miss 25 seconds every 5 minutes. I'm sure we can tighten this up but idk how to fix it rn. 
-#         while i < 275:
-#             try:
-#                 writer.writerow([time.time(),RAIN,WIND,analog_read(),sensor_bmp.temperature,sensor_sht.temperature,sensor_bmp.pressure,sensor_sht.relative_humidity,sensor_bmp.altitude,calibration])
-#             except Exception as e:
-#                 print(e)
-#             i += 1
-#             time.sleep(0.81)
-
-#         file.close()
-
-
-#     os.rename(log_file_path, f'{DATA_PATH}/{log_file_path[-30:]}')
-
-#     return True
-
 
 @task
 def process_data(df):
@@ -351,7 +319,7 @@ def record_data_flow():
 
 @task
 def setup_producer():
-    producer = KafkaProducer(bootstrap_servers=['192.168.0.24:9092'])
+    producer = KafkaProducer(bootstrap_servers=['192.168.0.25:9092'])
 
     return producer
 
